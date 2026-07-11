@@ -9,7 +9,7 @@ def download_dataset():
   print(f"Dataset has been downloaded to {path}")
   return path
 
-dataset_path = download_dataset()
+dataset_path = download_dataset() # move to train.py later
 
 def load_dataset(dataset_path):
   train_path = os.path.join(dataset_path, "train.txt")
