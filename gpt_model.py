@@ -1,5 +1,6 @@
 import torch
-from torch import nn
+import torch.nn as nn
+from config import (VOCAB_SIZE,EMBED_SIZE,BLOCK_SIZE,)
 
 # Token Embedding
 class TokenEmbedding(nn.Module):
@@ -12,3 +13,60 @@ class TokenEmbedding(nn.Module):
     x =  self.embedding(tokens)
     # x -> (batch_size, block_size, embed_size)
     return x
+
+class PositionalEmbedding(nn.Module):
+  def __init__(self, block_size, embed_size):
+    super().__init__()
+    self.position_embedding_table = nn.Embedding(block_size, embed_size)
+
+  def forward(self, tokens):
+    T = tokens.shape[1] # tokens -> (B, T)
+    positions = torch.arange(T, device=tokens.device) # -> (T,)
+    x = self.position_embedding_table(positions) # -> (T, C)
+    return x
+  
+class GPT(nn.Module):
+  def __init__(self, vocab_size, embed_size, block_size):
+    super().__init__()
+    self.token_embedding = TokenEmbedding(vocab_size, embed_size)
+    self.position_embedding = PositionalEmbedding(block_size, embed_size)
+
+  def forward(self, tokens):
+    token_embeddings = self.token_embedding(tokens) # -> (B, T, C)
+    position_embeddings = self.position_embedding(tokens) # -> (T, C)
+    x = token_embeddings + position_embeddings
+    return x
+  
+class MultiHeadCausalSelfAttention(nn.Module):
+  def __init__(self, embed_size, num_heads, block_size, dropout):
+    super().__init__()
+    self.embed_size = embed_size
+    self.num_heads = num_heads
+    self.attn_dropout = nn.Dropout(dropout)
+    self.resid_dropout = nn.Dropout(dropout)
+    assert embed_size % num_heads == 0 # embed_size must be divisible by num_heads
+    self.head_size = embed_size // num_heads
+    self.c_attn = nn.Linear(embed_size, 3 * embed_size)
+    self.c_proj = nn.Linear(embed_size, embed_size)
+    self.register_buffer("mask", torch.tril(torch.ones(block_size, block_size)).bool())
+  
+
+  def forward(self, x):
+    B, T, C = x.shape # -> (B, T, C)
+    q, k, v = self.c_attn(x).split(self.embed_size, dim=2)
+    # c_attn -> (B,T,3C) -> split -> Q(B,T,C) K(B,T,C) V(B,T,C)
+    q = q.view(B, T, self.num_heads, self.head_size).transpose(1, 2)
+    k = k.view(B, T, self.num_heads, self.head_size).transpose(1, 2)
+    v = v.view(B, T, self.num_heads, self.head_size).transpose(1, 2)
+    # (B, T, 768) -> (B,T, 12, 64) -> (B, 12, T, 64)
+    # (B, T, C) -> (B(batch), T(seq_len), H(num_heads), D(head_size)) -> (B,H,T,D)
+    # And why do we want (B,H,T,D)? :To perform matrix multiplication (Q @ K.T) independently and in parallel for each head.
+    attention_scores = (q @ k.transpose(-2, -1)) * (self.head_size ** -0.5) # (B,H,T,D) @ (B,H,D,T) -> (B,H,T,T)
+    attention_scores = attention_scores.masked_fill(self.mask[:T, :T] == 0, float("-inf")) # (B,H,T,T)
+    attention_probs = attention_scores.softmax(dim=-1) # (B,H,T,T) -> (B,H,T,T)
+    attention_probs = self.attn_dropout(attention_probs) # (B,H,T,T) -> (B,H,T,T)
+    out = attention_probs @ v # (B,H,T,T) @ (B,H,T,D) -> (B,H,T,D)
+    out = out.transpose(1, 2).contiguous().view(B, T, C) # (B,H,T,D) -> (B,T,H,D) -> (B,T,C)
+    out = self.c_proj(out) # (B,T,C) -> c_proj -> (B,T,C)
+    out = self.resid_dropout(out) # (B,T,C) -> (B,T,C)
+    return out
