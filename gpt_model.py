@@ -70,3 +70,31 @@ class MultiHeadCausalSelfAttention(nn.Module):
     out = self.c_proj(out) # (B,T,C) -> c_proj -> (B,T,C)
     out = self.resid_dropout(out) # (B,T,C) -> (B,T,C)
     return out
+  
+class MLP(nn.Module):
+  def __init__(self, embed_size,dropout):
+    super().__init__()
+    self.c_fc = nn.Linear(embed_size, 4 * embed_size)
+    self.gelu = nn.GELU()
+    self.c_proj = nn.Linear(4 * embed_size, embed_size)
+    self.dropout = nn.Dropout(dropout)
+    
+  def forward(self, x):
+    x = self.c_fc(x)       # (B,T,C)  -> (B,T,4C)
+    x = self.gelu(x)       # (B,T,4C) -> (B,T,4C)
+    x = self.c_proj(x)     # (B,T,4C) -> (B,T,C)
+    x = self.dropout(x)    # (B,T,C)  -> (B,T,C)
+    return x
+  
+class DecoderBlock(nn.Module):
+  def __init__(self, embed_size, num_heads, block_size, dropout):
+    super().__init__()
+    self.layer_norm1 = nn.LayerNorm(embed_size)
+    self.attn = MultiHeadCausalSelfAttention(embed_size, num_heads, block_size, dropout)
+    self.layer_norm2 = nn.LayerNorm(embed_size)
+    self.mlp = MLP(embed_size, dropout)
+
+  def forward(self, x):
+    x = x + self.attn(self.layer_norm1(x)) 
+    x = x + self.mlp(self.layer_norm2(x))
+    return x
