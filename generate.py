@@ -16,8 +16,7 @@ model = GPT(
 ).to(device)
 
 model.load_state_dict(
-    torch.load("weights/gpt_model.pt", map_location=device)
-)
+    torch.load("weights/gpt_model.pt", map_location=device))
 model.eval()
 def generate(prompt, max_new_tokens):
     token_ids = tokenize(prompt)

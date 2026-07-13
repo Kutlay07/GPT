@@ -96,6 +96,8 @@ class GPT(nn.Module):
         for _ in range(num_layers)])
     self.ln_f = nn.LayerNorm(embed_size)
     self.lm_head = nn.Linear(embed_size, vocab_size, bias=False) # (B,T,C) -> (B,T,V(vocab_size))
+    # Weight Tying
+    self.lm_head.weight = self.token_embedding.embedding.weight
 
   def forward(self, tokens):
     # tokens = (B, T)
