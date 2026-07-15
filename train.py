@@ -5,141 +5,75 @@ from gpt_data import *
 import os
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from torch.amp import autocast, GradScaler
+import math
 
-# ==========================================================
+# =========================
 # Device
-# ==========================================================
+# =========================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
 
-# ==========================================================
-# Save Directories
-# ==========================================================
-if "COLAB_GPU" in os.environ:
-    from google.colab import drive
+# =========================
+# Folders
+# =========================
+os.makedirs("checkpoints", exist_ok=True)
+os.makedirs("weights", exist_ok=True)
 
-    drive.mount("/content/drive")
-
-    ROOT_DIR = "/content/drive/MyDrive/GPT"
-
-else:
-    ROOT_DIR = "."
-
-CHECKPOINT_DIR = os.path.join(ROOT_DIR, "checkpoints")
-WEIGHTS_DIR = os.path.join(ROOT_DIR, "weights")
-
-os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-os.makedirs(WEIGHTS_DIR, exist_ok=True)
-
-# ==========================================================
-# Save / Verify Functions
-# ==========================================================
-def verify_checkpoint(path):
-    try:
-        torch.load(path, map_location="cpu")
-        print(f"✓ Verified: {os.path.basename(path)}")
-        return True
-    except Exception as e:
-        print(f"✗ Verification failed: {e}")
-        return False
-
-
-def get_save_model():
-    """
-    Returns the original model if torch.compile() is enabled.
-    Otherwise returns the normal model.
-    """
-    return model._orig_mod if hasattr(model, "_orig_mod") else model
-
-
-def save_checkpoint(path, epoch, optimizer, scaler, loss):
-
-    save_model = get_save_model()
-
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": save_model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "scaler_state_dict": scaler.state_dict(),
-            "loss": loss,
-        },
-        path,
-    )
-
-    verify_checkpoint(path)
-
-
-def save_model(path):
-
-    save_model_obj = get_save_model()
-
-    torch.save(
-        save_model_obj.state_dict(),
-        path,
-    )
-
-    verify_checkpoint(path)
-
-
-# ==========================================================
+# =========================
 # Model
-# ==========================================================
+# =========================
 model = GPT(
     vocab_size=VOCAB_SIZE,
     embed_size=EMBED_SIZE,
     block_size=BLOCK_SIZE,
     dropout=DROPOUT,
     num_heads=NUM_HEADS,
-    num_layers=NUM_LAYERS,
+    num_layers=NUM_LAYERS
 ).to(device)
 
-# ==========================================================
-# Dataset
-# ==========================================================
-dataset_path = download_dataset()
 
+
+# =========================
+# Dataset
+# =========================
+dataset_path = download_dataset()
 text = load_dataset(dataset_path)
 text = clean_text(text)
-
 token_ids = tokenize(text)
 
-dataset = GPTDataset(
-    token_ids,
-    BLOCK_SIZE,
-    stride=64,
-)
+dataset = GPTDataset(token_ids, BLOCK_SIZE,stride=64)
+
+train_size = int(0.95 * len(dataset))
+val_size = len(dataset) - train_size
+
+train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
 train_loader = DataLoader(
-    dataset,
+    train_dataset,
     batch_size=BATCH_SIZE,
-    shuffle=True,
+    shuffle=True
 )
 
-# ==========================================================
+val_loader = DataLoader(val_dataset,
+                       batch_size=BATCH_SIZE,
+                       shuffle=False,)
+# =========================
 # Optimizer
-# ==========================================================
+# =========================
 optimizer = torch.optim.AdamW(
     model.parameters(),
-    lr=LEARNING_RATE,
+    lr=LEARNING_RATE
 )
 
-# ==========================================================
-# AMP
-# ==========================================================
-scaler = GradScaler(
-    enabled=device.type == "cuda"
-)
+# --- GradScaler ---
+scaler = GradScaler(enabled=device.type == "cuda")
 
-# ==========================================================
+# =========================
 # Resume Training
-# ==========================================================
-CHECKPOINT_PATH = os.path.join(
-    CHECKPOINT_DIR,
-    "checkpoint_epoch_4.pt",   # istediğinde değiştirebilirsin
-)
+# =========================
+
+CHECKPOINT_PATH = "/kaggle/input/datasets/kutlay07/checkpoint-loss-3-1393-pt/checkpoint_loss_3_1393.pt"
 
 best_loss = float("inf")
 
@@ -150,7 +84,7 @@ if os.path.exists(CHECKPOINT_PATH):
     checkpoint = torch.load(
         CHECKPOINT_PATH,
         map_location=device,
-        weights_only=False,
+        weights_only=False
     )
 
     model.load_state_dict(
@@ -168,25 +102,24 @@ if os.path.exists(CHECKPOINT_PATH):
 
     best_loss = checkpoint["loss"]
 
-    print("Checkpoint loaded successfully!")
-    print(f"Resuming from loss: {best_loss:.4f}")
+    print(f"Checkpoint loaded successfully!")
+    print(f"Resuming from loss: {best_loss:.4f}\n")
 
 else:
 
     print("No checkpoint found. Starting from scratch.")
 
-# ==========================================================
-# torch.compile (PyTorch 2.x)
-# ==========================================================
+# =========================
+# Compile Model (PyTorch 2.x)
+# =========================
 if hasattr(torch, "compile"):
-
     model = torch.compile(model)
-
     print("torch.compile enabled!")
 
-# ==========================================================
+# =========================
 # Training
-# ==========================================================
+# =========================
+
 model.train()
 
 for epoch in range(EPOCHS):
@@ -198,13 +131,9 @@ for epoch in range(EPOCHS):
         x = x.to(device)
         y = y.to(device)
 
-        optimizer.zero_grad(set_to_none=True)
+        optimizer.zero_grad()
 
-        with autocast(
-            device_type=device.type,
-            enabled=device.type == "cuda",
-        ):
-
+        with autocast(device_type=device.type, enabled=device.type == "cuda"):
             logits = model(x)
 
             B, T, V = logits.shape
@@ -212,10 +141,7 @@ for epoch in range(EPOCHS):
             logits = logits.reshape(B * T, V)
             targets = y.reshape(B * T)
 
-            loss = F.cross_entropy(
-                logits,
-                targets,
-            )
+            loss = F.cross_entropy(logits, targets)
 
         scaler.scale(loss).backward()
 
@@ -224,85 +150,97 @@ for epoch in range(EPOCHS):
 
         epoch_loss += loss.item()
 
-        # ==================================================
-        # Print Loss
-        # ==================================================
         if batch_idx % 100 == 0:
-
             print(
                 f"Epoch [{epoch+1}/{EPOCHS}] "
                 f"Batch [{batch_idx}/{len(train_loader)}] "
                 f"Loss: {loss.item():.4f}"
             )
 
-        # ==================================================
-        # Periodic Checkpoint
-        # ==================================================
-        if (batch_idx + 1) % 5000 == 0:
-
-            checkpoint_path = os.path.join(
-                CHECKPOINT_DIR,
-                f"checkpoint_batch_{batch_idx+1}.pt",
-            )
-
-            print("\nSaving periodic checkpoint...")
-
-            save_checkpoint(
-                checkpoint_path,
-                epoch + 1,
-                optimizer,
-                scaler,
-                loss.item(),
-            )
-
-            print()
-
     avg_loss = epoch_loss / len(train_loader)
+    model.eval()
 
-    print(f"\nEpoch {epoch+1} Average Loss: {avg_loss:.4f}")
+    val_loss = 0.0
 
-    # ==================================================
-    # Epoch Checkpoint
-    # ==================================================
-    epoch_checkpoint = os.path.join(
-        CHECKPOINT_DIR,
-        f"checkpoint_epoch_{epoch+1}.pt",
+    with torch.no_grad():
+        for x, y in val_loader:
+            x = x.to(device)
+            y = y.to(device)
+
+            with autocast(
+                device_type=device.type,
+                enabled = device.type == "cuda"
+            ):
+                logits = model(x)
+
+                B,T,V = logits.shape
+                
+                logits = logits.reshape(B * T, V)
+                targets = y.reshape(B * T)
+                
+                loss = F.cross_entropy(logits, targets)
+
+            val_loss += loss.item()
+
+    avg_val_loss = val_loss / len(val_loader)
+    perplexity = math.exp(avg_val_loss)
+    model.train()
+    
+    print(f"\nEpoch {epoch+1}/{EPOCHS}")
+    print(f"Train Loss      : {avg_loss:.4f}")
+    print(f"Validation Loss : {avg_val_loss:.4f}")
+    print(f"Perplexity      : {perplexity:.2f}")
+    # =========================
+    # Save checkpoint
+    # =========================
+    checkpoint_path = f"checkpoints/checkpoint_epoch_{epoch+1}.pt"
+    
+    save_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+    
+    torch.save(
+        {
+            "epoch": epoch + 1,
+            "model_state_dict": save_model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scaler_state_dict": scaler.state_dict(),
+            "loss": avg_loss,
+        },
+        checkpoint_path,
     )
 
-    save_checkpoint(
-        epoch_checkpoint,
-        epoch + 1,
-        optimizer,
-        scaler,
-        avg_loss,
-    )
+    # Verify checkpoint
+    try:
+        torch.load(checkpoint_path, map_location="cpu")
+        print("Checkpoint verified successfully.")
+    except Exception as e:
+        print(f"Checkpoint verification failed: {e}")
 
-    # ==================================================
-    # Best Model
-    # ==================================================
-    if avg_loss < best_loss:
+    # Save best model
+    if avg_val_loss < best_loss:
+        best_loss = avg_val_loss
+        best_model_path = "weights/best_model.pt"
 
-        best_loss = avg_loss
+        save_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+        torch.save(save_model.state_dict(), best_model_path)
 
-        best_model_path = os.path.join(
-            WEIGHTS_DIR,
-            "best_model.pt",
-        )
-
-        save_model(best_model_path)
-
-        print(f"🔥 New Best Model! Loss: {best_loss:.4f}")
+        try:
+            torch.load(best_model_path, map_location="cpu")
+            print("Best model saved and verified.")
+        except Exception as e:
+            print(f"Best model verification failed: {e}")
 
     print(f"Best Loss: {best_loss:.4f}\n")
 
-# ==========================================================
-# Final Model
-# ==========================================================
-last_model_path = os.path.join(
-    WEIGHTS_DIR,
-    "last_model.pt",
-)
+# =========================
+# Save final model
+# =========================
+last_model_path = "weights/last_model.pt"
 
-save_model(last_model_path)
+save_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+torch.save(save_model.state_dict(), last_model_path)
 
-print("\nTraining Finished Successfully!")
+try:
+    torch.load(last_model_path, map_location="cpu")
+    print("Final model saved and verified.")
+except Exception as e:
+    print(f"Final model verification failed: {e}")
