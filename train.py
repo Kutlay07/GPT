@@ -96,7 +96,7 @@ class WarmupCosineScheduler:
             lr = self.min_lr + (self.max_lr - self.min_lr) * cosine
 
         for param_group in self.optimizer.param_groups:
-            param_group["lr"] = 0.0
+            param_group["lr"] = lr
 
     def state_dict(self):
         return {"step_num": self.step_num}
@@ -113,6 +113,8 @@ scheduler = WarmupCosineScheduler(
     max_lr=LEARNING_RATE,
     min_lr=MIN_LR,
 )
+for param_group in optimizer.param_groups:
+    param_group["lr"] = 0.0
 
 # --- GradScaler ---
 scaler = GradScaler(enabled=device.type == "cuda")
@@ -221,8 +223,8 @@ for epoch in range(EPOCHS):
             print(
                 f"Epoch [{epoch+1}/{EPOCHS}] "
                 f"Batch [{batch_idx}/{len(train_loader)}] "
-                f"Loss: {loss.item():.4f}"
-                f"LR: {current_lr:.6f}"
+                f"Loss: {loss.item():.4f} "
+                f"LR: {current_lr:.8f}"
             )
 
     avg_loss = epoch_loss / len(train_loader)
