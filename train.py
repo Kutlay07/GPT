@@ -56,8 +56,8 @@ train_loader = DataLoader(
 )
 
 val_loader = DataLoader(val_dataset,
-                       batch_size=BATCH_SIZE,
-                       shuffle=False,)
+                        batch_size=BATCH_SIZE,
+                        shuffle=False,)
 # =========================
 # Optimizer
 # =========================
@@ -144,6 +144,15 @@ for epoch in range(EPOCHS):
             loss = F.cross_entropy(logits, targets)
 
         scaler.scale(loss).backward()
+        
+        # Since we are using AMP, convert the gradients back to normal
+        scaler.unscale_(optimizer)
+        
+        # Gradient Clipping (to prevent the exploding gradients)
+        torch.nn.utils.clip_grad_norm_(
+            model.parameters(),
+            max_norm=1.0
+        )
 
         scaler.step(optimizer)
         scaler.update()
