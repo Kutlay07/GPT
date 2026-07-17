@@ -47,7 +47,9 @@ dataset = GPTDataset(token_ids, BLOCK_SIZE,stride=STRIDE)
 train_size = int(0.95 * len(dataset))
 val_size = len(dataset) - train_size
 
-train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+generator = torch.Generator().manual_seed(42)
+train_dataset, val_dataset = random_split(
+    dataset, [train_size, val_size], generator=generator)
 
 train_loader = DataLoader(
     train_dataset,
@@ -123,7 +125,7 @@ scaler = GradScaler(enabled=device.type == "cuda")
 # Resume Training
 # =========================
 
-CHECKPOINT_PATH = "/kaggle/input/datasets/kutlay07/checkpoint-loss-3-1393-pt/checkpoint_loss_3_1393.pt"
+CHECKPOINT_PATH = ""
 
 best_loss = float("inf")
 
@@ -136,10 +138,16 @@ if os.path.exists(CHECKPOINT_PATH):
         map_location=device,
         weights_only=False
     )
-
-    model.load_state_dict(
-        checkpoint["model_state_dict"]
-    )
+    state_dict = checkpoint["model_state_dict"]
+    
+    keys_to_remove = [
+        k for k in state_dict
+        if "cos_cached" in k or "sin_cached" in k
+    ]
+    for k in keys_to_remove:
+        del state_dict[k]
+        
+    model.load_state_dict(state_dict, strict=False)
 
     optimizer.load_state_dict(
         checkpoint["optimizer_state_dict"]

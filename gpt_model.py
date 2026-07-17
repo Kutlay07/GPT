@@ -55,8 +55,8 @@ class MultiHeadCausalSelfAttention(nn.Module):
     self.c_proj = nn.Linear(embed_size, embed_size)
 
     freqs = precompute_freqs(self.head_size, MAX_SEQ_LEN)
-    self.register_buffer("cos_cached", freqs.cos())
-    self.register_buffer("sin_cached", freqs.sin())
+    self.register_buffer("cos_cached", freqs.cos(), persistent=False)
+    self.register_buffer("sin_cached", freqs.sin(), persistent=False)
 
 
   def forward(self, x, past_k=None, past_v=None):
