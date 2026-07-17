@@ -1,0 +1,22 @@
+{
+  "architectures": [
+    "GPTFromScratchForCausalLM"
+  ],
+  "auto_map": {
+    "AutoConfig": "configuration_gpt_fs.GPTFromScratchConfig",
+    "AutoModelForCausalLM": "modeling_gpt_fs.GPTFromScratchForCausalLM"
+  },
+  "block_size": 128,
+  "bos_token_id": 50256,
+  "dropout": 0.1,
+  "dtype": "float32",
+  "eos_token_id": 50256,
+  "hidden_size": 768,
+  "max_position_embeddings": 128,
+  "model_type": "gpt_from_scratch",
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "tie_word_embeddings": true,
+  "transformers_version": "5.14.1",
+  "vocab_size": 50257
+}
